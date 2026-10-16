@@ -470,6 +470,17 @@ class TestV1Endpoints:
         assert resp.content == b'{"predictions":[[1,2]]}'
         assert resp.headers["content-type"] == "application/json"
 
+    def test_explain_v1_does_not_echo_request_headers(self, http_server_client):
+        resp = http_server_client.post(
+            "/v1/models/TestModel:explain",
+            content=b'{"instances":[[1,2]]}',
+            headers={"authorization": "Bearer abc", "x-custom": "1"},
+        )
+        assert resp.status_code == 200
+        assert resp.content == b'{"predictions":[[1,2]]}'
+        assert "authorization" not in resp.headers
+        assert "x-custom" not in resp.headers
+
     def test_unknown_path_v1(self, http_server_client):
         resp = http_server_client.get("/unknown_path")
         assert resp.status_code == 404
@@ -1078,6 +1089,32 @@ class TestTFHttpServerCloudEvent:
         assert resp.headers["ce-source"] == "io.kserve.inference.TestModel"
         assert resp.headers["ce-type"] == "io.kserve.inference.response"
         assert resp.headers["ce-time"] > "2021-01-28T21:04:43.144141+00:00"
+        assert resp.content == b'{"predictions": [[1, 2]]}'
+
+    def test_explain_ce_structured(self, http_server_client):
+        event = dummy_cloud_event({"instances": [[1, 2]]})
+        headers, body = to_structured(event)
+
+        resp = http_server_client.post(
+            "/v1/models/TestModel:explain", headers=headers, content=body
+        )
+
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "application/cloudevents+json"
+        assert json.loads(resp.content)["data"] == {"predictions": [[1, 2]]}
+
+    def test_explain_ce_binary(self, http_server_client):
+        event = dummy_cloud_event({"instances": [[1, 2]]}, set_contenttype=True)
+        headers, body = to_binary(event)
+
+        resp = http_server_client.post(
+            "/v1/models/TestModel:explain", headers=headers, content=body
+        )
+
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "application/json"
+        assert resp.headers["ce-type"] == "io.kserve.inference.response"
+        assert resp.headers["ce-id"] != "36077800-0c23-4f38-a0b4-01f4369f670a"
         assert resp.content == b'{"predictions": [[1, 2]]}'
 
     def test_predict_ce_bytes_bad_format_exception(self, http_server_client):
